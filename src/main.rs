@@ -1,10 +1,9 @@
-///
-/// Base Library
-/// 
-
-use moddy_base::*;
 use communicator_virtual::*;
 use logic_whackamole::*;
+///
+/// Base Library
+///
+use moddy_base::*;
 
 fn main() -> Result<(), ()> {
     let mut logic = LogicWhackAMole::new();

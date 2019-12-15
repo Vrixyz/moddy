@@ -1,3 +1,5 @@
+use std::sync::Arc;
+use std::sync::Mutex;
 use moddy_base::*;
 
 use std::thread;
@@ -94,6 +96,7 @@ enum EventLoopModification {
 }
 
 pub struct VirtualCommunicator {
+    elems: Arc<Mutex<Vec<VirtualElement>>>,
     recv_events: Option<mpsc::Receiver<Event<VirtualElement>>>,
     send_to_event_loop: Option<mpsc::Sender<EventLoopModification>>,
 }
@@ -103,10 +106,10 @@ impl VirtualCommunicator {
         Self {
             recv_events: None,
             send_to_event_loop: None,
+            elems: Arc::new(Mutex::new(vec![])),
         }
     }
     pub fn run_event_loop(&mut self) {
-
         // TODO: Use message passing: https://doc.rust-lang.org/book/ch16-02-message-passing.html
         // event loop send msg event, that we receive in `poll_events`
         // event loop can receive events such as "Stop" or "Add button"
@@ -118,6 +121,7 @@ impl VirtualCommunicator {
         self.recv_events = Some(rx_main_thread);
         let (tx_main_thread, rx) = mpsc::channel();
         self.send_to_event_loop = Some(tx_main_thread);
+        let elems = self.elems.clone();
         thread::spawn(move || {
             let config = Config::builder()
                 .history_ignore_space(true)
@@ -189,7 +193,15 @@ impl ServerTrait<VirtualElement> for VirtualCommunicator {
     fn add_element(&mut self, capabilities: &Capabilities) -> Result<VirtualElement, ()> {
         // TODO: return a correct device accepting all these capabilities. 
         // TODO: return an error if these capabilities are not possible.
-        Ok(VirtualElement{uuid: 42})
+        loop {
+            if let Ok(mut elems) = self.elems.lock() {
+                let new_elem = VirtualElement{uuid: elems.len() as i32};
+                let ret = new_elem.clone();
+                elems.push(new_elem);
+                return Ok(ret);
+            }
+        }
+        Err(())
     }
     fn send_command(&mut self, e: &VirtualElement, command: &Command) {
         println!("{:?}: {:?}", e.uuid, command);

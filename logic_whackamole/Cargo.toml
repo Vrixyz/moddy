@@ -8,3 +8,4 @@ edition = "2018"
 
 [dependencies]
 moddy_base = { path = "../moddy_base" }
+rand = "0.7.2"

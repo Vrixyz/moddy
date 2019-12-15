@@ -1,5 +1,7 @@
 use moddy_base::*;
 
+use rand::*;
+
 #[derive(Clone)]
 struct Button<E: Element> {
     e: E,
@@ -15,6 +17,7 @@ pub struct LogicWhackAMole<E:Element> {
     all_buttons : Vec<Button<E>>,
     current_button_target : Option<Button<E>>,
     current_button_cycle : Vec<Button<E>>,
+    rng : rand::rngs::ThreadRng,
 }
 
 impl<E: Element> LogicWhackAMole<E> {
@@ -23,11 +26,23 @@ impl<E: Element> LogicWhackAMole<E> {
             all_buttons: vec![],
             current_button_target: None,
             current_button_cycle: vec![],
+            rng: rand::thread_rng(),
         }
     }
-    fn get_random_button(&mut self) -> Option<Button<E>> {
-//        self.current_button_cycle.take_random()
-        None
+    fn update_random_button<S: ServerTrait<E>>(&mut self, server: &mut S) {
+        let len = self.all_buttons.len();
+        if len > 0 {
+            let index = if len > 1 { self.rng.gen::<usize>() % (self.all_buttons.len() - 1) } else { 0 };
+            if let Some(current_button) = self.current_button_target.take() {
+                server.send_command(&current_button.e, &Command::Light(false));
+                server.send_command(&current_button.e, &Command::Beep);
+                self.all_buttons.push(current_button);
+            }
+            let new_button = self.all_buttons.remove(index);
+            server.send_command(&new_button.e, &Command::Light(true));
+            server.send_command(&new_button.e, &Command::Beep);
+            self.current_button_target = Some(new_button);
+        }
     }
 }
 
@@ -43,6 +58,7 @@ impl<E: Element + Clone + std::fmt::Debug, S: ServerTrait<E>> Logic<E, S> for Lo
                 _ => break,
             }
         }
+        self.update_random_button(server);
         Ok(())
     }
     fn logic_loop(&mut self, server: &mut S, elapsed_seconds: f32) {
@@ -55,18 +71,7 @@ impl<E: Element + Clone + std::fmt::Debug, S: ServerTrait<E>> Logic<E, S> for Lo
                 match &self.current_button_target {
                     Some(current_button_target) => {
                         if current_button_target.e.is_same(&e) {
-                            server.send_command(&e, &Command::Light(false));
-                            server.send_command(&e, &Command::Beep);
-                            self.current_button_target = self.get_random_button();
-                            match &self.current_button_target {
-                                Some(button) => {
-                                    server.send_command(&button.e, &Command::Light(true));
-                                },
-                                None => {
-                                    self.current_button_cycle = self.all_buttons.clone();
-                                    self.current_button_target = self.get_random_button();
-                                },
-                            }
+                            self.update_random_button(server);
                         }
                     },
                     _ => {},
