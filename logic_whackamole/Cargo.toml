@@ -1,0 +1,10 @@
+[package]
+name = "logic_whackamole"
+version = "0.1.0"
+authors = ["Thierry Berger <thierry.berger@ohm-games.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+moddy_base = { path = "../moddy_base" }

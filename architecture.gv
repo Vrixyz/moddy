@@ -1,0 +1,48 @@
+digraph G {
+    rankdir=LR;
+    
+    subgraph clusterLogic {
+        label = "Logic implementation";
+        subgraph clusterLogic {
+            update
+            receive_event
+            label = "Logic";
+        }
+        init_logic
+    }
+    subgraph clusterCommunicator {
+		label = "Communicator";
+
+        init_communicator;
+
+        subgraph clusterPoller {
+            store_events -> poll_events [ style=dotted];
+            wait_input -> store_events -> wait_input;
+            label = "Poller";
+        }
+        subgraph clusterServer {
+            send_command;
+            add_element;
+            label = "Server";
+            "Element" [
+                label = "Element | Uuid | State";
+                shape = "record";
+            ];
+        }
+    }
+    subgraph clusterBase {
+        start -> sleep -> poll_events_base -> logic_loop -> sleep
+		label = "Base";
+    }
+    init_communicator -> wait_input [ style=dotted]
+    start -> init_communicator
+    poll_events_base -> poll_events [ color=red, label = 1, fontcolor=red]
+    poll_events-> poll_events_base [ color=red, label = 2, fontcolor=red];
+    poll_events_base -> receive_event [ color=red, label = 3, fontcolor=red]
+    logic_loop -> update;
+    update -> send_command -> Element;
+    receive_event -> send_command;
+    store_events -> Element [ style = "dotted"];
+    init_logic -> add_element -> Element;
+    add_element -> init_logic
+}
