@@ -8,5 +8,8 @@ edition = "2018"
 
 [dependencies]
 moddy_base = { path = "../moddy_base" }
-rustyline = "5.0.4"
-rustyline-derive = "0.2.0"
+
+[dependencies.cursive]
+version = "0.11"
+default-features = false
+features = ["pancurses-backend"]

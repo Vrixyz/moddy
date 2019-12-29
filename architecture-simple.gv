@@ -1,0 +1,7 @@
+digraph Moddy {
+    edge [dir="both"]
+    base -> server [label="poll_events"];
+    edge [dir="right"]
+    base -> logic [label="events, update"];
+    logic -> server [label="add_elements | send_command"];
+}

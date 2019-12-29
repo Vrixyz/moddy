@@ -10,8 +10,8 @@ fn main() -> Result<(), ()> {
     let mut communicator = VirtualCommunicator::new();
     use std::{thread, time};
 
-    logic.init(&mut communicator)?;
     communicator.run_event_loop();
+    logic.init(&mut communicator)?;
     loop {
         thread::sleep(time::Duration::from_millis(100));
         for event in communicator.poll_events() {

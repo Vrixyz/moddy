@@ -1,3 +1,5 @@
+mod interactive;
+
 use std::sync::Arc;
 use std::sync::Mutex;
 use moddy_base::*;
@@ -5,77 +7,10 @@ use moddy_base::*;
 use std::thread;
 use std::sync::mpsc;
 
-use std::borrow::Cow::{self, Borrowed, Owned};
-
-use rustyline::completion::{Completer, FilenameCompleter, Pair};
-use rustyline::config::OutputStreamType;
-use rustyline::error::ReadlineError;
-use rustyline::highlight::{Highlighter, MatchingBracketHighlighter};
-use rustyline::hint::{Hinter, HistoryHinter};
-use rustyline::{Cmd, CompletionType, Config, Context, EditMode, Editor, KeyPress};
-use rustyline_derive::Helper;
-use std::collections::HashMap;
-
-struct MyCompleter {
-    elements_interactions: HashMap<i32,Vec<EventCapability>>,
-}
-
-#[derive(Helper)]
-struct MyHelper {
-    completer: FilenameCompleter,
-    highlighter: MatchingBracketHighlighter,
-    hinter: HistoryHinter,
-    colored_prompt: String,
-}
-
-impl Completer for MyHelper {
-    type Candidate = Pair;
-
-    fn complete(
-        &self,
-        line: &str,
-        pos: usize,
-        ctx: &Context<'_>,
-    ) -> Result<(usize, Vec<Pair>), ReadlineError> {
-        self.completer.complete(line, pos, ctx)
-    }
-}
-
-impl Hinter for MyHelper {
-    fn hint(&self, line: &str, pos: usize, ctx: &Context<'_>) -> Option<String> {
-        self.hinter.hint(line, pos, ctx)
-    }
-}
-
-impl Highlighter for MyHelper {
-    fn highlight_prompt<'b, 's: 'b, 'p: 'b>(
-        &'s self,
-        prompt: &'p str,
-        default: bool,
-    ) -> Cow<'b, str> {
-        if default {
-            Borrowed(&self.colored_prompt)
-        } else {
-            Borrowed(prompt)
-        }
-    }
-
-    fn highlight_hint<'h>(&self, hint: &'h str) -> Cow<'h, str> {
-        Owned("\x1b[1m".to_owned() + hint + "\x1b[m")
-    }
-
-    fn highlight<'l>(&self, line: &'l str, pos: usize) -> Cow<'l, str> {
-        self.highlighter.highlight(line, pos)
-    }
-
-    fn highlight_char(&self, line: &str, pos: usize) -> bool {
-        self.highlighter.highlight_char(line, pos)
-    }
-}
-
 #[derive(Clone, Debug)] 
 pub struct VirtualElement {
     uuid: i32,
+    is_lightened : bool,
 }
 
 impl Element for VirtualElement {
@@ -90,9 +25,9 @@ impl Element for VirtualElement {
     }
 }
 
-enum EventLoopModification {
+pub enum EventLoopModification {
     Stop,
-    AddButton(i32),
+    UpdateElement(VirtualElement),
 }
 
 pub struct VirtualCommunicator {
@@ -104,87 +39,28 @@ pub struct VirtualCommunicator {
 impl VirtualCommunicator {
     pub fn new() -> Self {
         Self {
+            elems: Arc::new(Mutex::new(vec![])),
             recv_events: None,
             send_to_event_loop: None,
-            elems: Arc::new(Mutex::new(vec![])),
         }
     }
     pub fn run_event_loop(&mut self) {
-        // TODO: Use message passing: https://doc.rust-lang.org/book/ch16-02-message-passing.html
+
         // event loop send msg event, that we receive in `poll_events`
         // event loop can receive events such as "Stop" or "Add button"
         // add 2 props "channel":
         // - recv_from_event_loop OK
         // - send_to_event_loop
         // Their double is moved inside the thread (recv_from_main_thread and send_to_main_thread)
-        let (tx, rx_main_thread) = mpsc::channel();
-        self.recv_events = Some(rx_main_thread);
+        let (events_tx, rx_events) = mpsc::channel();
+        self.recv_events = Some(rx_events);
         let (tx_main_thread, rx) = mpsc::channel();
         self.send_to_event_loop = Some(tx_main_thread);
         let elems = self.elems.clone();
+        // TODO: here we can have multiple event managers (physical, local, internet, ...), we receive all events the same way, but for each command/event impact, we have to adress them specifically.
         thread::spawn(move || {
-            let config = Config::builder()
-                .history_ignore_space(true)
-                .completion_type(CompletionType::List)
-                .edit_mode(EditMode::Emacs)
-                .output_stream(OutputStreamType::Stdout)
-                .build();
-            let h = MyHelper {
-                completer: FilenameCompleter::new(),
-                highlighter: MatchingBracketHighlighter::new(),
-                hinter: HistoryHinter {},
-                colored_prompt: "".to_owned(),
-            };
-            let mut rl = Editor::with_config(config);
-            rl.set_helper(Some(h));
-            rl.bind_sequence(KeyPress::Meta('N'), Cmd::HistorySearchForward);
-            rl.bind_sequence(KeyPress::Meta('P'), Cmd::HistorySearchBackward);
-            if rl.load_history("history.txt").is_err() {
-                println!("No previous history.");
-            }
-            loop {
-                let p = format!("> ");
-                rl.helper_mut().expect("No helper").colored_prompt = format!("\x1b[1;32m{}\x1b[0m", p);
-                let readline = rl.readline(&p);
-                match readline {
-                    Ok(line) => {
-                        rl.add_history_entry(line.as_str());
-                        println!("Line: {}", line);
-                        let words: Vec<&str> = line.split_whitespace().collect();
-                        if words.len() != 2 {
-                            println!("Usage: 
- > ElementId Command
-                            ");
-                            continue;
-                        }
-                        if let Ok(element_id) = words[0].parse::<i32>() {
-                            match words[1] {
-                                "true" => {
-                                    tx.send(Event::Pushed(VirtualElement{uuid:element_id}, true)).unwrap();
-                                },
-                                "false" => {
-                                    tx.send(Event::Pushed(VirtualElement{uuid:element_id}, false)).unwrap();
-                                },
-                                _ => {
-                                    println!("Command not understood.");
-                                }
-                            }
-                        }
-                    }
-                    Err(ReadlineError::Interrupted) => {
-                        println!("CTRL-C");
-                        break;
-                    }
-                    Err(ReadlineError::Eof) => {
-                        println!("CTRL-D");
-                        break;
-                    }
-                    Err(err) => {
-                        println!("Error: {:?}", err);
-                        break;
-                    }
-                }
-            }
+            let mut session = interactive::Interactive::new(rx, events_tx);
+            session.run();
         });
     }
 }
@@ -195,15 +71,35 @@ impl ServerTrait<VirtualElement> for VirtualCommunicator {
         // TODO: return an error if these capabilities are not possible.
         loop {
             if let Ok(mut elems) = self.elems.lock() {
-                let new_elem = VirtualElement{uuid: elems.len() as i32};
+                let new_elem = VirtualElement{uuid: elems.len() as i32, is_lightened: false};
                 let ret = new_elem.clone();
                 elems.push(new_elem);
+                let sender = self.send_to_event_loop.clone().unwrap();
+                sender.send(EventLoopModification::UpdateElement(ret.clone())).unwrap();
                 return Ok(ret);
             }
         }
         Err(())
     }
     fn send_command(&mut self, e: &VirtualElement, command: &Command) {
+        match command {
+            Command::Light(v) => {
+                let mut elem = None;
+                if let Ok(mut elems) = self.elems.lock() {
+                    if let Some(real_e) = elems.iter().position(|x| x.is_same(e)) {
+                        elems[real_e].is_lightened = *v;
+                        elem = Some(elems[real_e].clone());
+                    }
+                }
+                if let Some(cloned_e) = elem {
+                    let sender = self.send_to_event_loop.clone().unwrap();
+                    sender.send(EventLoopModification::UpdateElement(cloned_e)).unwrap();
+                }
+            },
+            _ => {
+
+            }
+        }
         println!("{:?}: {:?}", e.uuid, command);
     }
 }
